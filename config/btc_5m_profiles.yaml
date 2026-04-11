@@ -2,6 +2,16 @@ version: 1
 name: btc_5m_impulse_momentum_profiles
 market: polymarket_btc_updown_5m
 
+strategy_reference:
+  style: momentum_follow_through_into_close
+  entry_window_seconds_left_target: 120
+  entry_window_seconds_left_tolerance: 30
+  btc_move_usd_min: 70
+  btc_move_usd_max_reference: 100
+  skew_bias_note: "Prefer direction supported by market skew when momentum is already established."
+  sizing_note: "Typical discretionary sizing can be up to ~50% of allocated trading balance; tune risk per user preference."
+  optional_hedge_note: "When skew is extreme (for example >=95/5), allow a small opposite hedge to reduce last-second reversal risk."
+
 shared_rules:
   market_validation:
     require_active: true
@@ -26,7 +36,7 @@ shared_rules:
 
 profiles:
   conservative:
-    description: "Более стабильный режим: строгие фильтры, меньший риск."
+    description: "More stable mode: stricter filters and lower per-trade risk."
     signal:
       trigger_source: "clob_best_ask"
       direction_rule: "follow_stronger_side_over_threshold"
@@ -50,7 +60,7 @@ profiles:
       stop_loss_pct_from_entry: 0.25
 
   aggressive:
-    description: "Более частые входы и выше риск на сделку."
+    description: "Higher frequency and higher risk mode."
     signal:
       trigger_source: "clob_best_ask"
       direction_rule: "follow_stronger_side_over_threshold"
@@ -88,5 +98,5 @@ runner_mapping:
   example_aggressive_now: ".venv/bin/python /Users/evgenianosko/.openclaw/workspace/skills/btc-5m-live/scripts/test_btc_5m_session_exit_sl.py --threshold 0.70 --stake-usd 6 --stop-loss-pct 0.30 --exit-before-sec 25 --min-entry-seconds-left 60 --entry-timeout-min 60 --poll-sec 5 --execute"
 
 notes:
-  - "В текущем 5m раннере фильтр HL impulse отключён."
-  - "Вход: непрерывный мониторинг CLOB ask; если UP/DOWN >= 0.70, вход в сторону с более высокой ценой."
+  - "Current 5m runner uses threshold/side-strength logic; impulse filter integration can be extended at strategy layer."
+  - "Entry behavior: continuous CLOB ask monitoring; if UP/DOWN >= threshold, enter on stronger side."
