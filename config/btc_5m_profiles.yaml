@@ -32,7 +32,7 @@ shared_rules:
   session_timing:
     monitor_continuous: true
     min_entry_seconds_left: 60
-    exit_before_sec: 25
+    exit_before_sec: 20
 
 profiles:
   conservative:
@@ -94,8 +94,8 @@ runner_mapping:
     - "--entry-timeout-min"
     - "--poll-sec"
     - "--execute"
-  example_conservative_now: ".venv/bin/python scripts/test_btc_5m_session_exit_sl.py --threshold 0.70 --stake-usd 4 --stop-loss-pct 0.25 --exit-before-sec 25 --min-entry-seconds-left 60 --entry-timeout-min 60 --poll-sec 5 --execute"
-  example_aggressive_now: ".venv/bin/python scripts/test_btc_5m_session_exit_sl.py --threshold 0.70 --stake-usd 6 --stop-loss-pct 0.30 --exit-before-sec 25 --min-entry-seconds-left 60 --entry-timeout-min 60 --poll-sec 5 --execute"
+  example_conservative_now: ".venv/bin/python scripts/test_btc_5m_session_exit_sl.py --threshold 0.70 --stake-usd 4 --stop-loss-pct 0.25 --exit-before-sec 20 --min-entry-seconds-left 60 --entry-timeout-min 60 --poll-sec 5 --execute"
+  example_aggressive_now: ".venv/bin/python scripts/test_btc_5m_session_exit_sl.py --threshold 0.70 --stake-usd 6 --stop-loss-pct 0.30 --exit-before-sec 20 --min-entry-seconds-left 60 --entry-timeout-min 60 --poll-sec 5 --execute"
 
 notes:
   - "Current 5m runner uses threshold/side-strength logic; impulse filter integration can be extended at strategy layer."

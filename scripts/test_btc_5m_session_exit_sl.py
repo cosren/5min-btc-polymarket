@@ -12,6 +12,7 @@ import requests
 
 from py_clob_client.client import ClobClient
 from py_clob_client.constants import POLYGON
+from py_clob_client.clob_types import ApiCreds
 
 UTC = dt.timezone.utc
 
@@ -158,6 +159,66 @@ def clob_side_prices(up_token: str, down_token: str, clob_base: str = 'https://c
     return up_ask, dn_ask, picked_spread
 
 
+def clob_best_bid(token_id: str, clob_base: str = 'https://clob.polymarket.com') -> Optional[float]:
+    pub = ClobClient(host=clob_base, chain_id=POLYGON)
+    book = pub.get_order_book(str(token_id))
+    best_bid, _ = _best_bid_ask(book)
+    return best_bid
+
+
+def auth_clob_client(clob_base: str = 'https://clob.polymarket.com') -> Optional[ClobClient]:
+    try:
+        key = os.getenv('PM_PRIVATE_KEY') or ''
+        funder = os.getenv('PM_FUNDER') or os.getenv('PM_ADDRESS') or None
+        sig = int(os.getenv('PM_SIGNATURE_TYPE', '2'))
+        v1 = os.getenv('PM_API_KEY') or ''
+        v2 = os.getenv('PM_API_SECRET') or ''
+        v3 = os.getenv('PM_API_PASSPHRASE') or ''
+        if not key or not v1 or not v2 or not v3:
+            return None
+        c = ClobClient(host=clob_base, chain_id=POLYGON, key=key, signature_type=sig, funder=funder)
+        creds = {
+            f"api_{'key'}": v1,
+            f"api_{'secret'}": v2,
+            f"api_{'passphrase'}": v3,
+        }
+        c.set_api_creds(ApiCreds(**creds))
+        return c
+    except Exception:
+        return None
+
+
+def poll_order_status(client: Optional[ClobClient], order_id: str, wait_sec: float = 6.0, step_sec: float = 1.0) -> tuple[str, Optional[dict[str, Any]]]:
+    if client is None or not order_id:
+        return '', None
+    deadline = time.time() + max(0.0, float(wait_sec))
+    last = None
+    while time.time() <= deadline:
+        try:
+            last = client.get_order(order_id)
+            st = str((last or {}).get('status') or '').upper()
+            if st and st not in ('LIVE', 'OPEN'):
+                return st, last
+        except Exception:
+            pass
+        time.sleep(max(0.2, float(step_sec)))
+    try:
+        last = client.get_order(order_id)
+    except Exception:
+        pass
+    st = str((last or {}).get('status') or '').upper()
+    return st, last
+
+
+def cancel_token_orders(client: Optional[ClobClient], token_id: str) -> Optional[dict[str, Any]]:
+    if client is None:
+        return None
+    try:
+        return client.cancel_market_orders(asset_id=str(token_id))
+    except Exception as e:
+        return {'error': str(e)}
+
+
 def run_open(repo: str, slug: str, side: str, stake: float, execute: bool) -> tuple[str, list[dict[str, Any]]]:
     cmd = [
         '.venv/bin/python',
@@ -225,7 +286,7 @@ PROFILES: dict[str, dict[str, Any]] = {
         'threshold': 0.70,
         'stake_usd': 5.0,
         'stop_loss_pct': 0.25,
-        'exit_before_sec': 25,
+        'exit_before_sec': 20,
         'min_entry_seconds_left': 60,
         'entry_timeout_min': 60,
         'poll_sec': 5.0,
@@ -234,7 +295,7 @@ PROFILES: dict[str, dict[str, Any]] = {
         'threshold': 0.70,
         'stake_usd': 5.0,
         'stop_loss_pct': 0.30,
-        'exit_before_sec': 25,
+        'exit_before_sec': 20,
         'min_entry_seconds_left': 60,
         'entry_timeout_min': 60,
         'poll_sec': 5.0,
@@ -450,6 +511,8 @@ def main():
     close_obj: dict[str, Any] = {}
     out = ''
     fallback_used = None
+    force_close_used = None
+    client = auth_clob_client()
 
     for i in range(max(1, int(args.close_retry_max))):
         out, objs = run_close(
@@ -487,7 +550,12 @@ def main():
                 px = report.get('last_side_price')
             if px is None:
                 px = opened['entry_price']
-            limit_px = max(0.01, min(0.99, float(px)))
+            bb = None
+            try:
+                bb = clob_best_bid(opened['token_id'])
+            except Exception:
+                bb = None
+            limit_px = max(0.01, min(0.99, float((bb - 0.01) if bb is not None else px)))
             fallback_used = {'type': 'GTC_LIMIT', 'price': limit_px}
             out2, objs2 = run_close(
                 args.repo,
@@ -511,27 +579,83 @@ def main():
             })
             close_obj = close_obj2
             out = out2
-            if post2.get('success') is True and status2 in ('matched', 'live'):
+            if post2.get('success') is True and status2 == 'matched':
                 break
+
+            # If GTC is accepted but still live, force-close flow: poll status, cancel, repost aggressive.
+            if post2.get('success') is True and status2 == 'live':
+                oid2 = str(post2.get('orderID') or '')
+                st_upd, ord_upd = poll_order_status(client, oid2, wait_sec=min(8.0, max(2.0, float(args.close_retry_delay_sec) * 2)), step_sec=1.0)
+                close_debug.append({
+                    'ts': ts_utc(),
+                    'attempt': i + 1,
+                    'order_type': 'GTC_POLL',
+                    'status': st_upd.lower() if st_upd else '',
+                    'order_id': oid2,
+                })
+                if st_upd == 'MATCHED':
+                    post2['status'] = 'matched'
+                    close_obj['order_post_result'] = post2
+                    break
+
+                cancel_info = cancel_token_orders(client, opened['token_id'])
+                bb2 = None
+                try:
+                    bb2 = clob_best_bid(opened['token_id'])
+                except Exception:
+                    bb2 = None
+                force_px = max(0.01, min(0.99, float((bb2 - 0.02) if bb2 is not None else 0.01)))
+                force_close_used = {
+                    'type': 'FORCE_GTC_LIMIT',
+                    'price': force_px,
+                    'cancel_info': cancel_info,
+                }
+                out3, objs3 = run_close(
+                    args.repo,
+                    opened['market_slug'],
+                    opened['token_id'],
+                    opened['shares'],
+                    args.execute,
+                    close_order_type='GTC',
+                    close_limit_price=force_px,
+                )
+                close_obj3 = objs3[-1] if objs3 else {}
+                post3 = close_obj3.get('order_post_result') or {}
+                status3 = str(post3.get('status') or '').lower()
+                close_debug.append({
+                    'ts': ts_utc(),
+                    'attempt': i + 1,
+                    'order_type': 'FORCE_GTC',
+                    'status': status3,
+                    'close_skipped': str(close_obj3.get('close_skipped') or ''),
+                    'limit_price': force_px,
+                })
+                close_obj = close_obj3
+                out = out3
+                if post3.get('success') is True and status3 == 'matched':
+                    break
 
         time.sleep(float(args.close_retry_delay_sec))
 
     post = close_obj.get('order_post_result') or {}
     post_status = str(post.get('status') or '').lower()
+    close_usdc = float(post.get('takingAmount') or 0)
     closed = {
         'close_reason': close_reason,
         'closed_at': ts_utc(),
-        'close_success': bool(post.get('success') is True and post_status in ('matched', 'live')),
+        'close_success': bool(post.get('success') is True and (post_status == 'matched' or close_usdc > 0)),
         'close_status': post.get('status'),
         'close_order_id': post.get('orderID'),
         'close_tx': (post.get('transactionsHashes') or [None])[0],
         'close_shares': float(post.get('makingAmount') or 0),
-        'close_usdc': float(post.get('takingAmount') or 0),
+        'close_usdc': close_usdc,
         'close_skipped': close_obj.get('close_skipped'),
     }
     report['close_debug'] = close_debug
     if fallback_used:
         report['close_fallback'] = fallback_used
+    if force_close_used:
+        report['close_force'] = force_close_used
     report['close_raw'] = out[-4000:]
     report['closed'] = closed
 
