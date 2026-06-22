@@ -20,6 +20,7 @@ from pathlib import Path
 
 import requests
 from fastapi import FastAPI
+from fastapi.responses import HTMLResponse
 import uvicorn
 
 # Polymarket API (可选，仅在需要真实交易时)
@@ -472,11 +473,29 @@ def fetch_btc_price() -> float:
 # ============================================================
 app = FastAPI(title="BTC 5m Polymarket Bot")
 
+# 模块级 Web 仪表盘引用（供 FastAPI 路由访问）
+_web_dashboard = None
+
 
 @app.get("/health")
 async def health_check():
     """健康检查端点：供 Docker/Back4app 探测服务是否存活"""
     return {"status": "healthy", "msg": "Polymarket Bot is hunting!"}
+
+
+@app.get("/")
+async def dashboard():
+    """Web 仪表盘 HTML 页面"""
+    from src.monitoring.web_dashboard import WEB_HTML
+    return HTMLResponse(content=WEB_HTML)
+
+
+@app.get("/api/state")
+async def api_state():
+    """Web 仪表盘状态 API"""
+    if _web_dashboard is not None:
+        return _web_dashboard.get_state()
+    return {"error": "dashboard not initialized", "heartbeat": "STARTING"}
 
 
 def setup_logging():
@@ -582,7 +601,13 @@ def main():
         try:
             from src.monitoring.web_dashboard import WebDashboard
             web_dashboard = WebDashboard(port=args.web_port)
-            web_dashboard.start()
+            # 容器/FastAPI 模式：不启动独立 HTTP 服务器，由 FastAPI 统一提供服务
+            if '--dashboard' not in sys.argv:
+                global _web_dashboard
+                _web_dashboard = web_dashboard
+                print(f"🌐 Web Dashboard: 已集成到 FastAPI（端口由 Render PORT 环境变量控制）")
+            else:
+                web_dashboard.start()
         except Exception as e:
             print(f"⚠️  Web Dashboard unavailable: {e}")
 

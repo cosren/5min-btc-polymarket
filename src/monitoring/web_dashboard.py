@@ -746,6 +746,11 @@ class WebDashboard:
         with self._lock:
             return json.dumps(self._state, default=str)
 
+    def get_state(self) -> dict:
+        """获取当前状态字典（供 FastAPI 等外部服务使用）"""
+        with self._lock:
+            return dict(self._state)
+
     def start(self):
         """启动 Web 服务器（在后台线程中）"""
         state_ref = self
