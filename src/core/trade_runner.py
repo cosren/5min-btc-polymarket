@@ -19,6 +19,8 @@ from typing import Any, Optional, Dict
 from pathlib import Path
 
 import requests
+from fastapi import FastAPI
+import uvicorn
 
 # Polymarket API (可选，仅在需要真实交易时)
 try:
@@ -456,6 +458,23 @@ def fetch_btc_price() -> float:
     except Exception:
         return 0.0
 
+# ============================================================
+# FastAPI 应用（用于 Docker/Back4app 部署的健康检查 + Web 服务）
+# ============================================================
+app = FastAPI(title="BTC 5m Polymarket Bot")
+
+
+@app.get("/health")
+async def health_check():
+    """健康检查端点：供 Docker/Back4app 探测服务是否存活"""
+    return {"status": "healthy", "msg": "Polymarket Bot is hunting!"}
+
+
+def setup_logging():
+    """容器环境检测：关闭 Rich 富文本标记，防止日志乱码"""
+    if os.environ.get("PYTHONUNBUFFERED") == "1":
+        os.environ["RICH_DISABLE"] = "1"
+        print("[INFO] Production Container detected. Disabling TUI markup for clean logs.")
 
 def main():
     """主函数"""
@@ -851,4 +870,24 @@ def main():
             time.sleep(5)
     
 if __name__ == '__main__':
-    main()
+    import threading
+
+    # 检测是否使用终端仪表盘（本地开发模式）
+    use_dashboard = '--dashboard' in sys.argv
+
+    if use_dashboard:
+        # 本地模式：直接运行 main()，保持 Rich TUI 体验
+        main()
+    else:
+        # 服务器模式：FastAPI + 交易策略后台线程
+        setup_logging()
+
+        @app.on_event("startup")
+        async def startup_strategy():
+            """FastAPI 启动后，在后台线程启动交易策略"""
+            threading.Thread(target=main, daemon=True).start()
+
+        port = int(os.environ.get("PORT", 8080))
+        print(f"[SERVER] Starting FastAPI on 0.0.0.0:{port}")
+        print(f"[SERVER] Health check: http://localhost:{port}/health")
+        uvicorn.run(app, host="0.0.0.0", port=port, log_level="warning")

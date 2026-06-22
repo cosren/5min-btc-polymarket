@@ -1,0 +1,43 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+build/
+develop-eggs/
+dist/
+*.egg-info/
+
+# 环境配置（密钥不进镜像）
+.env
+*.env
+*.env.local
+config.env.local
+secrets.yaml
+
+# 日志和数据
+data/logs/*.csv
+data/logs/*.log
+
+# Git
+.git/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# 测试
+.pytest_cache/
+.coverage
+htmlcov/
+
+# 临时文件
+*.log
+*.tmp
