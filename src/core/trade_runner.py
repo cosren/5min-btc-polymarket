@@ -446,17 +446,26 @@ class InstitutionalTradeRunner:
 
 
 def fetch_btc_price() -> float:
-    """从 Binance REST API 获取 BTC 实时价格"""
-    try:
-        resp = requests.get(
-            "https://api.binance.com/api/v3/ticker/price",
-            params={"symbol": "BTCUSDT"},
-            timeout=5
-        )
-        resp.raise_for_status()
-        return float(resp.json()["price"])
-    except Exception:
-        return 0.0
+    """多源获取 BTC 实时价格，自动回退"""
+    # 数据源列表：(url, parser)
+    sources = [
+        ("https://api.binance.com/api/v3/ticker/price?symbol=BTCUSDT",
+         lambda r: float(r["price"])),
+        ("https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd",
+         lambda r: float(r["bitcoin"]["usd"])),
+        ("https://api.coinbase.com/v2/prices/BTC-USD/spot",
+         lambda r: float(r["data"]["amount"])),
+    ]
+    for url, parser in sources:
+        try:
+            resp = requests.get(url, timeout=5)
+            resp.raise_for_status()
+            price = parser(resp.json())
+            if price > 0:
+                return price
+        except Exception:
+            continue
+    return 0.0
 
 # ============================================================
 # FastAPI 应用（用于 Docker/Back4app 部署的健康检查 + Web 服务）
