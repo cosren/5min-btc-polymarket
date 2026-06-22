@@ -401,7 +401,6 @@ class InstitutionalTradeRunner:
         # 更新状态
         self.daily_pnl += pnl
         self.equity += pnl
-        self.trades_today += 1
         
         if pnl < 0:
             self.consecutive_losses += 1
@@ -599,12 +598,13 @@ def main():
         except ImportError as e:
             print(f"⚠️  Dashboard unavailable: {e}")
 
-    if args.web:
+    # 服务端模式（容器/Render）：始终创建 Web 仪表盘，由 FastAPI 统一提供服务
+    is_server_mode = '--dashboard' not in sys.argv
+    if args.web or is_server_mode:
         try:
             from src.monitoring.web_dashboard import WebDashboard
             web_dashboard = WebDashboard(port=args.web_port)
-            # 容器/FastAPI 模式：不启动独立 HTTP 服务器，由 FastAPI 统一提供服务
-            if '--dashboard' not in sys.argv:
+            if is_server_mode:
                 global _web_dashboard
                 _web_dashboard = web_dashboard
                 print(f"🌐 Web Dashboard: 已集成到 FastAPI（端口由 Render PORT 环境变量控制）")
@@ -732,6 +732,7 @@ def main():
                 
                 if position:
                     active_markets[poly_data['slug']] = position
+                    runner.trades_today += 1
                     print(f"📝 PAPER BUY: {side} ${stake:.2f} @ {entry_price:.3f}")
             
             # 打印状态
@@ -803,6 +804,7 @@ def main():
                     winning_trades=summary.get('winning_trades', 0),
                     losing_trades=summary.get('losing_trades', 0),
                     daily_pnl=summary.get('daily_pnl', 0),
+                    hourly_pnl=summary.get('hourly_pnl', {}),
                     active_positions=active_positions, recent_trades=recent_trades,
                     cycle_count=cycle_count,
                     poly_latency_ms=poly_latency, binance_latency_ms=binance_latency,

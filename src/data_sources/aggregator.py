@@ -264,13 +264,6 @@ class MarketDataAggregator:
         if not data.is_data_fresh:
             return False, "data_not_fresh"
         
-        # OBI过滤
-        obi_config = filters.get('obi', {})
-        if obi_config.get('enabled', True):
-            obi_threshold = obi_config.get('threshold', constants.DEFAULT_FILTER_OBI_THRESHOLD)
-            if abs(data.binance_obi) < obi_threshold:
-                return False, f"obi_below_threshold:{data.binance_obi:.3f}"
-        
         # 成交量比率过滤
         volume_config = filters.get('volume_ratio', {})
         if volume_config.get('enabled', True):
