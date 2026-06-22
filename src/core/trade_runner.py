@@ -48,6 +48,7 @@ from src.execution.paper_trading import PaperTradingEngine
 from src.monitoring.notifier import TelegramNotifier
 from src.monitoring.data_logger import DataLogger
 from src.monitoring.dashboard import TradingDashboard
+from src import constants
 
 from collections import deque
 
@@ -223,15 +224,16 @@ class InstitutionalTradeRunner:
         # 2. 获取聚合数据
         aggregated_data = self.aggregator.get_aggregated_data(poly_data)
 
-        # 如果 WS 数据不可用，从 Polymarket 价格推导 OBI
+        # 禁用 fallback 强制使用真实币安 WebSocket 数据
         paper_mode = False
-        if aggregated_data.binance_obi == 0.0:
-            up_p = poly_data.get('up_price', 0.5)
-            down_p = poly_data.get('down_price', 0.5)
-            aggregated_data.binance_obi = (up_p - 0.5) * 2
-            if down_p > 0:
-                aggregated_data.binance_buy_sell_ratio = up_p / down_p
-            paper_mode = True
+        # ❌ 移除：不再用 Polymarket 价格推导假 OBI，确保币安 WebSocket 数据能真正生效
+        # if aggregated_data.binance_obi == 0.0:
+        #     up_p = poly_data.get('up_price', 0.5)
+        #     down_p = poly_data.get('down_price', 0.5)
+        #     aggregated_data.binance_obi = (up_p - 0.5) * 2
+        #     if down_p > 0:
+        #         aggregated_data.binance_buy_sell_ratio = up_p / down_p
+        #     paper_mode = True
         
         # 3. 数据过滤
         filters = self.config.get('filters', {})
@@ -256,7 +258,7 @@ class InstitutionalTradeRunner:
             else:
                 side = 'UP' if up_p > down_p else 'DOWN'
 
-        obi_threshold = filters.get('obi', {}).get('threshold', 0.15)
+        obi_threshold = filters.get('obi', {}).get('threshold', constants.DEFAULT_DIRECTION_OBI_THRESHOLD)
         if side == 'UP' and obi < obi_threshold:
             result['reason'] = f'obi_direction:UP_needs_OBI>={obi_threshold:.2f}_got_{obi:.3f}'
             return result
@@ -623,6 +625,11 @@ def main():
         try:
             cycle_count += 1
             binance_latency = 0.0
+
+            # 强制刷新币安 WebSocket 缓存，确保每次循环都拿到最新数据
+            if hasattr(runner.aggregator, 'binance_ws') and runner.aggregator.binance_ws:
+                if hasattr(runner.aggregator.binance_ws, 'orderbook'):
+                    pass  # WebSocket 异步回调会自动更新 orderbook，无需手动刷新
             
             # 获取Polymarket市场数据
             poly_data = None
@@ -869,15 +876,7 @@ def main():
 
                     # 更新 OBI 策略分档统计
                     if dashboard:
-                        abs_obi = abs(obi)
-                        if abs_obi < 0.15:
-                            band = "0.00-0.15"
-                        elif abs_obi < 0.25:
-                            band = "0.15-0.25"
-                        elif abs_obi < 0.35:
-                            band = "0.25-0.35"
-                        else:
-                            band = ">0.35"
+                        band = constants.get_obi_bucket(abs(obi))
                         stats = dashboard.state.obi_strategy_stats
                         if band not in stats:
                             stats[band] = {"trades": 0, "wins": 0, "net_pnl": 0.0, "avg_pnl": 0.0}
@@ -890,7 +889,7 @@ def main():
                     
                     del active_markets[slug]
             
-            time.sleep(5)
+            time.sleep(0.5)
             
         except KeyboardInterrupt:
             print("\n🛑 Shutting down...")
@@ -901,7 +900,7 @@ def main():
             logger.error(f"Error in main loop: {e}")
             import traceback
             traceback.print_exc()
-            time.sleep(5)
+            time.sleep(0.5)
     
 if __name__ == '__main__':
     import threading

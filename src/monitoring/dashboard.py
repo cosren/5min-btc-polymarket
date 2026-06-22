@@ -18,6 +18,8 @@ from typing import Optional, Dict, List, Any
 from collections import deque
 from dataclasses import dataclass, field
 
+from src import constants
+
 try:
     from rich.live import Live
     from rich.panel import Panel
@@ -273,7 +275,7 @@ class TradingDashboard:
 
         if len(obi) >= 2:
             latest_obi = obi[-1]
-            obi_color = "green" if latest_obi > 0.15 else "red" if latest_obi < -0.15 else "yellow"
+            obi_color = "green" if latest_obi > constants.OBI_COLOR_POSITIVE else "red" if latest_obi < constants.OBI_COLOR_NEGATIVE else "yellow"
             content.append(f" OBI: ", style="dim")
             content.append(f"{latest_obi:+.3f}", style=f"bold {obi_color}")
             content.append(f"\n {_spark(obi)}", style="yellow")
@@ -414,10 +416,10 @@ class TradingDashboard:
         table.add_column("Avg PnL", justify="right", width=12)
 
         if not s.obi_strategy_stats:
-            table.add_row("0.00-0.15", "0", "0", "0.0%", "$0.00", "$0.00")
-            table.add_row("0.15-0.25", "0", "0", "0.0%", "$0.00", "$0.00")
-            table.add_row("0.25-0.35", "0", "0", "0.0%", "$0.00", "$0.00")
-            table.add_row(">0.35", "0", "0", "0.0%", "$0.00", "$0.00")
+            # 从 constants 动态生成分档行
+            bands = constants.OBI_BUCKETS
+            for lo, hi, label in bands:
+                table.add_row(label, "0", "0", "0.0%", "$0.00", "$0.00")
         else:
             for label, stats in s.obi_strategy_stats.items():
                 wr = stats.get("wins", 0) / stats.get("trades", 1) if stats.get("trades", 0) > 0 else 0

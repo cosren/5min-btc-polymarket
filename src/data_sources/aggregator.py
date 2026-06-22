@@ -11,6 +11,8 @@ from dataclasses import dataclass, field
 
 logger = logging.getLogger(__name__)
 
+from src import constants
+
 
 @dataclass
 class AggregatedMarketData:
@@ -157,6 +159,8 @@ class MarketDataAggregator:
         # 填充币安数据
         if self.binance_ws and self._sources_status['binance']:
             try:
+                # 每次循环强制刷新订单簿数据，确保拿到最新盘口
+                self.binance_ws.update_data()
                 data.binance_obi = self.binance_ws.calculate_obi()
                 data.binance_buy_sell_ratio = self.binance_ws.calculate_buy_sell_ratio()
                 
@@ -263,7 +267,7 @@ class MarketDataAggregator:
         # OBI过滤
         obi_config = filters.get('obi', {})
         if obi_config.get('enabled', True):
-            obi_threshold = obi_config.get('threshold', 0.35)
+            obi_threshold = obi_config.get('threshold', constants.DEFAULT_FILTER_OBI_THRESHOLD)
             if abs(data.binance_obi) < obi_threshold:
                 return False, f"obi_below_threshold:{data.binance_obi:.3f}"
         

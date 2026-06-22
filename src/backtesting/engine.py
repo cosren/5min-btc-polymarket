@@ -8,6 +8,8 @@ import logging
 from typing import List, Dict, Any, Optional
 from dataclasses import dataclass, field
 
+from src import constants
+
 logger = logging.getLogger(__name__)
 
 
@@ -54,7 +56,7 @@ class BacktestEngine:
         result = engine.run_backtest({
             'threshold': 0.70,
             'stake_usd': 5.0,
-            'obi_threshold': 0.35,
+            'obi_threshold': constants.DEFAULT_BACKTEST_OBI_THRESHOLD,
             'min_ev': 0.05
         })
         print(f"Win Rate: {result.win_rate:.2f}%")
@@ -122,7 +124,7 @@ class BacktestEngine:
             True表示应该进场
         """
         # OBI过滤
-        obi_threshold = params.get('obi_threshold', 0.35)
+        obi_threshold = params.get('obi_threshold', constants.DEFAULT_BACKTEST_OBI_THRESHOLD)
         if abs(data_point.get('obi', 0)) < obi_threshold:
             return False
         

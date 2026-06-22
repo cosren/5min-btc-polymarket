@@ -11,9 +11,12 @@ import webbrowser
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from collections import deque
 
+from src import constants
+
 
 # ============================================================
 # 完整的 HTML 仪表盘（单文件，无外部依赖）
+# 使用 {{OBI_HLINE}} 占位符，运行时替换为 constants.OBI_CHART_HLINE
 # ============================================================
 
 WEB_HTML = r"""<!DOCTYPE html>
@@ -487,7 +490,7 @@ async function fetchState() {
       renderSparkline('chart-obi', s.obi_history, {
         color: '#ffd93d',
         fillOpacity: 0.1,
-        hlines: [{value: 0.30, color: '#00d68f'}, {value: -0.30, color: '#ff6b6b'}, {value: 0, color: '#555'}]
+        hlines: [{value: {{OBI_HLINE}}, color: '#00d68f'}, {value: -{{OBI_HLINE}}, color: '#ff6b6b'}, {value: 0, color: '#555'}]
       });
     }
 
@@ -660,6 +663,9 @@ fetchState();
 </script>
 </body>
 </html>"""
+
+# 运行时替换占位符为 constants 中的实际值
+WEB_HTML = WEB_HTML.replace('{{OBI_HLINE}}', str(constants.OBI_CHART_HLINE))
 
 
 # ============================================================

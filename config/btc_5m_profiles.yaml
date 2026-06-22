@@ -33,7 +33,7 @@ data_sources:
 filters:
   obi:
     enabled: true
-    threshold: 0.15
+    threshold: 0.8
     weighted: false
     trend_window: 20
   volume_ratio:
