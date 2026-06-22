@@ -1,0 +1,1 @@
+timestamp,market_slug,side,obi,gbm_win_prob,ev,kelly_fraction,stake_usd,entry_price,exit_price,pnl,result,slippage,latency_ms,time_to_expiry,is_sniper,circuit_breaker_active

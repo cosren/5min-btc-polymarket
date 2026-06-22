@@ -1,16 +1,67 @@
-version: 1
-name: btc_5m_impulse_momentum_profiles
+version: 2
+name: btc_5m_institutional_profiles
 market: polymarket_btc_updown_5m
 
 strategy_reference:
-  style: momentum_follow_through_into_close
+  style: multi_factor_momentum_with_gbm
   entry_window_seconds_left_target: 120
   entry_window_seconds_left_tolerance: 30
   btc_move_usd_min: 70
   btc_move_usd_max_reference: 100
   skew_bias_note: "Prefer direction supported by market skew when momentum is already established."
-  sizing_note: "Typical discretionary sizing can be up to ~50% of allocated trading balance; tune risk per user preference."
+  sizing_note: "Dynamic sizing using Kelly Criterion; tune risk per user preference."
   optional_hedge_note: "When skew is extreme (for example >=95/5), allow a small opposite hedge to reduce last-second reversal risk."
+
+# 多源数据配置
+data_sources:
+  binance:
+    enabled: true
+    ws_url: "wss://fstream.binance.com/ws"
+    symbols: ["BTCUSDT"]
+    depth_levels: 10
+    agg_trade_window_sec: 60.0
+  deribit:
+    enabled: true
+    ws_url: "wss://www.deribit.com/ws/api/v2"
+    currency: "BTC"
+  hyperliquid:
+    enabled: false
+    ws_url: "wss://api.hyperliquid.xyz/ws"
+    coin: "BTC"
+
+# 数据过滤规则
+filters:
+  obi:
+    enabled: true
+    threshold: 0.15
+    weighted: false
+    trend_window: 20
+  volume_ratio:
+    enabled: true
+    buy_sell_ratio_min: 1.2
+    window_sec: 60
+  iv_rv:
+    enabled: true
+    iv_rv_ratio_max: 1.5
+    pause_strategy_when_elevated: true
+
+# 数学模型配置
+models:
+  gbm:
+    enabled: true
+    default_mu: 0.001
+    default_sigma: 0.50
+    min_win_probability: 0.65
+    monte_carlo_paths: 10000
+  atr:
+    enabled: true
+    period: 14
+    alpha: 1.5
+    use_dynamic_threshold: true
+  ev:
+    enabled: true
+    min_ev: 0.05
+    min_edge: 0.05
 
 shared_rules:
   market_validation:
@@ -34,6 +85,16 @@ shared_rules:
     min_entry_seconds_left: 60
     exit_before_sec: 20
 
+# 狙击模式配置
+sniper_mode:
+  enabled: true
+  window_start_sec: 5
+  window_end_sec: 2
+  min_win_probability: 0.98
+  min_obi: 0.7
+  max_stake_usd: 10.0
+  gas_urgency: "high"
+
 profiles:
   conservative:
     description: "More stable mode: stricter filters and lower per-trade risk."
@@ -42,10 +103,11 @@ profiles:
       direction_rule: "follow_stronger_side_over_threshold"
       threshold_price: 0.70
     sizing:
-      stake_mode: "fixed_or_cap"
-      stake_usd: 5
+      stake_mode: "kelly_criterion"
+      kelly_fraction_type: "quarter"
       risk_per_trade_pct_equity: 8
       max_notional_usd: 8
+      max_position_pct: 5.0
       daily_max_loss_pct: 10
       max_trades_per_day: 12
     hedge:
@@ -58,6 +120,12 @@ profiles:
     stop_loss:
       enabled: true
       stop_loss_pct_from_entry: 0.25
+    circuit_breaker:
+      enabled: true
+      daily_max_loss_pct: 10
+      max_consecutive_losses: 3
+      max_drawdown_pct: 15
+      auto_kill_on_breach: true
 
   aggressive:
     description: "Higher frequency and higher risk mode."
@@ -66,10 +134,11 @@ profiles:
       direction_rule: "follow_stronger_side_over_threshold"
       threshold_price: 0.70
     sizing:
-      stake_mode: "fixed_or_cap"
-      stake_usd: 5
+      stake_mode: "kelly_criterion"
+      kelly_fraction_type: "half"
       risk_per_trade_pct_equity: 15
       max_notional_usd: 15
+      max_position_pct: 5.0
       daily_max_loss_pct: 15
       max_trades_per_day: 20
     hedge:
@@ -82,9 +151,30 @@ profiles:
     stop_loss:
       enabled: true
       stop_loss_pct_from_entry: 0.30
+    circuit_breaker:
+      enabled: true
+      daily_max_loss_pct: 15
+      max_consecutive_losses: 3
+      max_drawdown_pct: 20
+      auto_kill_on_breach: true
+
+# 监控与通知
+monitoring:
+  telegram:
+    enabled: false
+    bot_token: ""
+    chat_id: ""
+  data_logging:
+    enabled: true
+    log_dir: "./data/logs"
+    csv_format: true
+  latency:
+    enabled: true
+    threshold_ms: 100
+    alert_threshold_ms: 200
 
 runner_mapping:
-  script: "skills/btc-5m-live/scripts/test_btc_5m_session_exit_sl.py"
+  script: "src/core/trade_runner.py"
   direct_flags_now_supported:
     - "--threshold"
     - "--stake-usd"
@@ -94,9 +184,15 @@ runner_mapping:
     - "--entry-timeout-min"
     - "--poll-sec"
     - "--execute"
-  example_conservative_now: ".venv/bin/python scripts/test_btc_5m_session_exit_sl.py --threshold 0.70 --stake-usd 4 --stop-loss-pct 0.25 --exit-before-sec 20 --min-entry-seconds-left 60 --entry-timeout-min 60 --poll-sec 5 --execute"
-  example_aggressive_now: ".venv/bin/python scripts/test_btc_5m_session_exit_sl.py --threshold 0.70 --stake-usd 6 --stop-loss-pct 0.30 --exit-before-sec 20 --min-entry-seconds-left 60 --entry-timeout-min 60 --poll-sec 5 --execute"
+    - "--profile"
+    - "--obi-threshold"
+    - "--min-ev"
+    - "--kelly-fraction"
+  example_conservative_now: ".venv/bin/python src/core/trade_runner.py --profile conservative --obi-threshold 0.35 --min-ev 0.05 --kelly-fraction quarter --execute"
+  example_aggressive_now: ".venv/bin/python src/core/trade_runner.py --profile aggressive --obi-threshold 0.35 --min-ev 0.05 --kelly-fraction half --execute"
 
 notes:
-  - "Current 5m runner uses threshold/side-strength logic; impulse filter integration can be extended at strategy layer."
-  - "Entry behavior: continuous CLOB ask monitoring; if UP/DOWN >= threshold, enter on stronger side."
+  - "Institutional upgrade: Multi-source data + GBM + Kelly + Circuit Breaker"
+  - "Entry behavior: OBI filter -> GBM win prob -> EV validation -> Kelly sizing -> Execute"
+  - "Sniper mode enabled for last 5-2 seconds with extreme OBI and 98%+ win probability"
+  - "All trades logged to CSV for backtesting and analysis"

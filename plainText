@@ -1,0 +1,40 @@
+5min-btc-polymarket/
+├── config/
+│   └── btc_5m_profiles.yaml          # 扩展配置
+├── src/
+│   ├── data_sources/                 # [新增] 数据源层
+│   │   ├── binance_ws.py
+│   │   ├── deribit_ws.py
+│   │   ├── hyperliquid_ws.py
+│   │   └── aggregator.py
+│   ├── models/                       # [新增] 数学模型层
+│   │   ├── gbm.py                    # 几何布朗运动
+│   │   ├── obi.py                    # 订单簿不平衡度
+│   │   ├── atr.py                    # 动态波动率
+│   │   └── ev_calculator.py          # 期望值计算
+│   ├── risk/                         # [新增] 风控层
+│   │   ├── kelly_criterion.py        # 凯利公式
+│   │   └── circuit_breaker.py        # 熔断机制
+│   ├── execution/                    # [新增] 执行层
+│   │   ├── sniper.py                 # 狙击模式
+│   │   └── latency_optimizer.py      # 延迟优化
+│   ├── monitoring/                   # [新增] 监控层
+│   │   ├── notifier.py               # 通知系统
+│   │   └── data_logger.py            # 数据记录
+│   ├── backtesting/                  # [新增] 回测层
+│   │   └── engine.py
+│   └── core/                         # [重构] 核心逻辑
+│       └── trade_runner.py           # 原 test_btc_5m_session_exit_sl.py
+├── scripts/
+│   ├── btc5m_ctl.sh                  # 扩展控制脚本
+│   ├── btc5m_docker.sh
+│   └── deploy/
+│       └── vps_setup.sh              # [新增] VPS部署
+├── tests/                            # [新增] 单元测试
+│   ├── test_gbm.py
+│   ├── test_kelly.py
+│   └── test_circuit_breaker.py
+├── data/                             # [新增] 数据存储
+│   ├── historical/
+│   └── logs/
+└── requirements.txt                  # 更新依赖

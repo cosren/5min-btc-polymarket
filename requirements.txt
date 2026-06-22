@@ -1,0 +1,30 @@
+# BTC 5min Polymarket 依赖包
+# 核心依赖
+requests>=2.31.0
+py_clob_client>=0.20.0
+
+# WebSocket支持
+websockets>=12.0
+aiohttp>=3.9.0
+
+# 数学计算
+numpy>=1.26.0
+scipy>=1.11.0
+pandas>=2.1.0
+
+# 通知系统
+python-telegram-bot>=20.0
+
+# 配置管理
+pyyaml>=6.0
+
+# 数据类
+dataclasses>=0.6
+
+# 测试
+pytest>=7.0.0
+pytest-asyncio>=0.21.0
+
+# 终端仪表盘
+rich>=13.0.0
+plotext>=5.0.0
