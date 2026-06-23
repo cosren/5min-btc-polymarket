@@ -912,10 +912,16 @@ if __name__ == '__main__':
         # 服务器模式：FastAPI + 交易策略后台线程
         setup_logging()
 
-        @app.on_event("startup")
-        async def startup_strategy():
-            """FastAPI 启动后，在后台线程启动交易策略"""
+
+        from contextlib import asynccontextmanager
+        
+        @asynccontextmanager
+        async def lifespan(app):
+            """FastAPI 生命周期：启动策略，关闭时清理"""
             threading.Thread(target=main, daemon=True).start()
+            yield
+
+        app.router.lifespan_context = lifespan
 
         port = int(os.environ.get("PORT", 8080))
         print(f"[SERVER] Starting FastAPI on 0.0.0.0:{port}")
