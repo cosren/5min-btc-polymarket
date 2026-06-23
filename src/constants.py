@@ -6,7 +6,7 @@
 """
 
 # ====== OBI (Order Book Imbalance) 主阈值 ======
-OBI_THRESHOLD = 0.85
+OBI_THRESHOLD = 0.35
 
 # ====== 默认值回退 ======
 DEFAULT_FILTER_OBI_THRESHOLD = OBI_THRESHOLD

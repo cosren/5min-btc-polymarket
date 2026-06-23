@@ -21,7 +21,7 @@ data_sources:
     depth_levels: 10
     agg_trade_window_sec: 60.0
   deribit:
-    enabled: true
+    enabled: false
     ws_url: "wss://www.deribit.com/ws/api/v2"
     currency: "BTC"
   hyperliquid:
@@ -33,7 +33,7 @@ data_sources:
 filters:
   obi:
     enabled: true
-    threshold: 0.8
+    threshold: 0.35
     weighted: false
     trend_window: 20
   volume_ratio:
@@ -41,7 +41,7 @@ filters:
     buy_sell_ratio_min: 1.2
     window_sec: 60
   iv_rv:
-    enabled: true
+    enabled: false
     iv_rv_ratio_max: 1.5
     pause_strategy_when_elevated: true
 
@@ -51,7 +51,7 @@ models:
     enabled: true
     default_mu: 0.001
     default_sigma: 0.50
-    min_win_probability: 0.65
+    min_win_probability: 0.30
     monte_carlo_paths: 10000
   atr:
     enabled: true
@@ -87,13 +87,13 @@ shared_rules:
 
 # 狙击模式配置
 sniper_mode:
-  enabled: true
-  window_start_sec: 5
-  window_end_sec: 2
-  min_win_probability: 0.98
-  min_obi: 0.7
-  max_stake_usd: 10.0
-  gas_urgency: "high"
+    enabled: true
+    window_start_sec: 5
+    window_end_sec: 2
+    min_win_probability: 0.50
+    min_obi: 0.85
+    max_stake_usd: 10.0
+    gas_urgency: "high"
 
 profiles:
   conservative:

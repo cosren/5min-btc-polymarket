@@ -38,8 +38,6 @@ except ImportError:
 # 导入新模块
 from src.data_sources.aggregator import MarketDataAggregator
 from src.models.gbm import GeometricBrownianMotion
-from src.models.obi import OrderBookImbalance
-from src.models.atr import DynamicThreshold
 from src.models.ev_calculator import ExpectedValueCalculator
 from src.risk.kelly_criterion import KellyCriterion
 from src.risk.circuit_breaker import CircuitBreaker, TradeRecord
@@ -107,15 +105,7 @@ class InstitutionalTradeRunner:
         gbm_config = config.get('models', {}).get('gbm', {})
         self.gbm = GeometricBrownianMotion(
             mu=gbm_config.get('default_mu', 0.001),
-            sigma=gbm_config.get('default_sigma', 0.02)
-        )
-        
-        self.obi_calculator = OrderBookImbalance()
-        
-        atr_config = config.get('models', {}).get('atr', {})
-        self.atr_calculator = DynamicThreshold(
-            period=atr_config.get('period', 14),
-            alpha=atr_config.get('alpha', 1.5)
+            sigma=gbm_config.get('default_sigma', 0.50)
         )
         
         ev_config = config.get('models', {}).get('ev', {})
@@ -183,7 +173,8 @@ class InstitutionalTradeRunner:
         current_price: float,
         target_price: float,
         time_to_expiry: float,
-        effective_equity: Optional[float] = None
+        effective_equity: Optional[float] = None,
+        aggregated_data = None
     ) -> dict:
         """评估交易机会
         
@@ -221,28 +212,17 @@ class InstitutionalTradeRunner:
             result['reason'] = 'circuit_breaker_active'
             return result
         
-        # 2. 获取聚合数据
-        aggregated_data = self.aggregator.get_aggregated_data(poly_data)
+        # 2. 获取聚合数据（允许外部传入预拉取的数据，避免重复请求）
+        if aggregated_data is None:
+            aggregated_data = self.aggregator.get_aggregated_data(poly_data)
 
         # 禁用 fallback 强制使用真实币安 WebSocket 数据
-        paper_mode = False
-        # ❌ 移除：不再用 Polymarket 价格推导假 OBI，确保币安 WebSocket 数据能真正生效
-        # if aggregated_data.binance_obi == 0.0:
-        #     up_p = poly_data.get('up_price', 0.5)
-        #     down_p = poly_data.get('down_price', 0.5)
-        #     aggregated_data.binance_obi = (up_p - 0.5) * 2
-        #     if down_p > 0:
-        #         aggregated_data.binance_buy_sell_ratio = up_p / down_p
-        #     paper_mode = True
-        
         # 3. 数据过滤
         filters = self.config.get('filters', {})
-        if paper_mode:
-            filters = {k: v for k, v in filters.items() if k == 'obi'}
         should_trade, filter_reason = self.aggregator.should_trade(
             aggregated_data, filters
         )
-        result['metrics'] = {'obi': aggregated_data.binance_obi, 'paper_mode': paper_mode}
+        result['metrics'] = {'obi': aggregated_data.binance_obi}
         if not should_trade:
             result['reason'] = f'filter_failed:{filter_reason}'
             return result
@@ -327,7 +307,8 @@ class InstitutionalTradeRunner:
         poly_data: dict,
         current_price: float,
         target_price: float,
-        time_to_expiry: float
+        time_to_expiry: float,
+        aggregated_data = None
     ) -> dict:
         """检查狙击机会
         
@@ -351,8 +332,9 @@ class InstitutionalTradeRunner:
             result['reason'] = 'sniper_disabled'
             return result
         
-        # 获取聚合数据
-        aggregated_data = self.aggregator.get_aggregated_data(poly_data)
+        # 获取聚合数据（允许外部传入预拉取数据）
+        if aggregated_data is None:
+            aggregated_data = self.aggregator.get_aggregated_data(poly_data)
         
         # GBM胜率
         gbm_win_prob = self.gbm.calculate_win_probability(
@@ -449,7 +431,6 @@ class InstitutionalTradeRunner:
 
 def fetch_btc_price() -> float:
     """多源获取 BTC 实时价格，自动回退"""
-    # 数据源列表：(url, parser)
     sources = [
         ("https://api.binance.com/api/v3/ticker/price?symbol=BTCUSDT",
          lambda r: float(r["price"])),
@@ -458,9 +439,10 @@ def fetch_btc_price() -> float:
         ("https://api.coinbase.com/v2/prices/BTC-USD/spot",
          lambda r: float(r["data"]["amount"])),
     ]
+    session = _get_price_session()
     for url, parser in sources:
         try:
-            resp = requests.get(url, timeout=5)
+            resp = session.get(url, timeout=1.5)
             resp.raise_for_status()
             price = parser(resp.json())
             if price > 0:
@@ -468,6 +450,20 @@ def fetch_btc_price() -> float:
         except Exception:
             continue
     return 0.0
+
+
+_price_session = None
+
+def _get_price_session():
+    """获取复用的 requests Session（连接池）"""
+    global _price_session
+    if _price_session is None:
+        _price_session = requests.Session()
+        _price_session.headers.update({
+            "User-Agent": "Mozilla/5.0 (compatible; BTC5mBot/1.0)",
+            "Accept": "application/json"
+        })
+    return _price_session
 
 # ============================================================
 # FastAPI 应用（用于 Docker/Back4app 部署的健康检查 + Web 服务）
@@ -626,11 +622,6 @@ def main():
             cycle_count += 1
             binance_latency = 0.0
 
-            # 强制刷新币安 WebSocket 缓存，确保每次循环都拿到最新数据
-            if hasattr(runner.aggregator, 'binance_ws') and runner.aggregator.binance_ws:
-                if hasattr(runner.aggregator.binance_ws, 'orderbook'):
-                    pass  # WebSocket 异步回调会自动更新 orderbook，无需手动刷新
-            
             # 获取Polymarket市场数据
             poly_data = None
             poly_latency = 0.0
@@ -678,7 +669,7 @@ def main():
             
             btc_price_history.append(current_price)
             
-            target_price = current_price * 1.001
+            target_price = current_price * 1.005
             if poly_data and poly_data.get('end_date'):
                 try:
                     end_dt = dt.datetime.fromisoformat(poly_data['end_date'].replace('Z', '+00:00'))
@@ -688,16 +679,20 @@ def main():
             else:
                 time_to_expiry = 120.0
             
-            # 评估交易机会
+            # 评估交易机会（一次性拉取聚合数据，两个函数复用）
             effective_equity = runner.paper_trading.current_equity if use_paper_trade else runner.equity
+            agg_data = runner.aggregator.get_aggregated_data(poly_data)
+
             evaluation = runner.evaluate_trade_opportunity(
                 poly_data, current_price, target_price, time_to_expiry,
-                effective_equity=effective_equity
+                effective_equity=effective_equity,
+                aggregated_data=agg_data
             )
             
-            # 狙击模式检查（在到期前5秒窗口内高胜率狙击）
+            # 狙击模式检查
             sniper_result = runner.check_sniper_opportunity(
-                poly_data, current_price, target_price, time_to_expiry
+                poly_data, current_price, target_price, time_to_expiry,
+                aggregated_data=agg_data
             )
             if use_paper_trade and sniper_result.get('should_snipe'):
                 sniper_side = sniper_result['side']

@@ -231,13 +231,6 @@ class MarketDataAggregator:
             signal += ratio_signal * 0.3
             weight_sum += 0.3
         
-        # IV-RV比率信号 (权重30%)
-        if data.deribit_iv_rv_ratio is not None:
-            # IV/RV < 1 表示实际波动高于预期，利好动量策略
-            iv_signal = 1.0 - data.deribit_iv_rv_ratio
-            signal += iv_signal * 0.3
-            weight_sum += 0.3
-        
         # 归一化
         if weight_sum > 0:
             signal /= weight_sum
